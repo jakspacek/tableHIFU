@@ -1,0 +1,3 @@
+
+class HandlerFCGen(object):
+    pass

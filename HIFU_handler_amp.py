@@ -1,0 +1,3 @@
+
+class HandlerAmp(object):
+    pass
