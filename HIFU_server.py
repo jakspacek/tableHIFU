@@ -15,10 +15,8 @@ try:
 	from twisted.internet import reactor, protocol
 except ImportError:
 	print('issue importing twisted.internet package for socket comms. \n'
-	'Try typing \'pip install twisted.internet\' in your console.\n')
-	#raise
-
-	#TODO: figure out how to get this working with Conda environment...?
+	'Your miniconda environment might be set up wrong.\n')
+	raise
 
 from HIFU_handler_motor import HandlerMotor
 from HIFU_handler_pmeter import HandlerPMeter
@@ -30,7 +28,7 @@ import sys
 from threading import Thread
 import socket, select
 import logging
-#import yaml
+import json
 
 if sys.maxsize > 2**32:
 	raise Exception('You must use a 32-bit version of Python to use the motor controls.')
@@ -47,131 +45,125 @@ DEFAULT_MESSAGE_DELIMITER = '!EOF!'
 #client
 DEFAULT_TIMEOUT = None
 
-#plagiarized from MatHIFU
-class HIFU_ThreadedHandler(Thread):
-	def __init__(self,
-                 parent, #server object
-                 socketSession):
+LATENCY_BUFFER = 1.00
+SAFETY_TIMEOUT = 5.00
+
+class SafetyManager(Thread):
+	'''
+	SafetyManager watches two things.
+	The first is client timeout (watch for disconnection or crash.)
+	The second is reflected power, as long as the power meter is connected.
+	'''
+	def __init__(self, backchannel):
+		# safety manager is instantiated as soon as the server is.
+		# Probably too early for anything relevant in the __init__.
 		Thread.__init__(self)
-		logger.info('Connection established. ')
-		self.daemon = False
+		self.daemon = True
 		self.bRunning = False
-		self.parent = parent
+		self.backchannel = backchannel
 
-		self.socketObject, self.socketAddress = socketSession
-
-		self.socketObject.settimeout(DEFAULT_TIMEOUT)
-
-		self.socket_commandListing = {
-            'ping' : self.pong,
-            'close' : self.close,
-            'quit' : self.stop,
-            }
-
-		self.handlerListing = {
-            COMMAND_TYPE_SOCKET : self.handlerSocket, #function
-            COMMAND_TYPE_MOTOR : HandlerStatic(), #Class Instantiation
-            COMMAND_TYPE_PMETER : HandlerDynamic(), #Class Instantiation
-			COMMAND_TYPE_FCGEN: HandlerDynamic(), #Class Instantiation
-			COMMAND_TYPE_AMP : HandlerDynamic(), #Class Instantiation
-            }
+	def connectionSTART(self):
+		logger.debug('Starting safety thread. Instructing client to send refreshes'
+			'every %d seconds.' % (SAFETY_TIMEOUT - LATENCY_BUFFER))
+		self.backchannel.write(json.dumps({'REFRESH_RATE':SAFETY_TIMEOUT - LATENCY_BUFFER}))
+		self.bRunning = True
 		self.start()
 
 	def run(self):
-		self.bRunning = True
 		while self.bRunning:
-			try:
-				clientMessage = self.receiveClientMessage()
-			except:
-				#The server couldn't parse the message, so we send a generic error
-				logger.error('Received an unknown message from the client')
-			if clientMessage:
-				self.handleClientMessage(clientMessage)
+			pass
 
-	def receiveClientMessage(self):
-		messageString = ''
-		while DEFAULT_MESSAGE_DELIMITER not in messageString:
-			try:
-				messageString += self.socketObject.recv(DEFAULT_BUFFER_SIZE)
-			except socket.timeout:
-				logger.error("TIMEOUT (%d seconds)" % DEFAULT_TIMEOUT)
-				logger.error("ERROR: Could not receive the entire message from the client in time.")
-				logger.error("SOCKET: " + str(self.socketAddress))
-				logger.error("MESSAGE: " + str(messageString))
-				return None
-			except:
-				logger.error('Some other error was obtained from recv... Weird')
-
-		if not messageString:
-			logger.info('Receiving blank data, assuming socket connection has been severed')
-			logger.info('Closing Socket...')
-			self.close()
-			return None
-
-		#remove delimiter after receiving
-		messageString = messageString[:(-1 * len(DEFAULT_MESSAGE_DELIMITER))]
-		logger.debug("SUCCESS: Message Received")
-		logger.debug("R_MESSAGE: " + str(messageString))
-
-		# create and return a JSON data object corresponding to the receieved JSON data!
-		try:
-			dataObject = socketMessageProtocol.JSON_MessageProtocol().fromString(messageString)
-		except:
-			logger.error("ERROR: Message could not be parsed, are you sure it's a JSON object?")
-			logger.error("MESSAGE: " + str(messageString))
-			return None
-		return dataObject
-
-	def handleClientMessage(self, message):
-		responseMessage = None
-		if message.Contains(COMMAND_TYPE_SOCKET):
-			cmdHandler = self.handlerListing[COMMAND_TYPE_SOCKET]
-		elif message.Contains(COMMAND_TYPE_STATIC):
-			cmdHandler = self.handlerListing[COMMAND_TYPE_STATIC]
-		elif message.Contains(COMMAND_TYPE_DYNAMIC):
-			cmdHandler = self.handlerListing[COMMAND_TYPE_DYNAMIC]
-		else:
-			logger.error('Unknown client command received. Message will'
-				'be ignored.')
-			logger.info('message:' + str(message))
-
-#also plagiarized from MatHIFU
-class Server(object):
-    def __init__(self, host = DEFAULT_HOST, port = DEFAULT_PORT):
-        self.bRunning = False
-        self.threadList = []
-        self.socketList = []
-
-        self.__call__ = self.run
-        self.__del__ = self.stop
-
-        self.listening_socket = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-        self.listening_socket.bind( (host, port) )
-        self.listening_socket.listen(MAX_BACKLOG)
-
-    def run(self):
-        self.bRunning = True
-        logger.info('Waiting for connections...')
-        while self.bRunning:
-            self._select()
-        logger.info('Server has stopped running.')
-
-    def stop(self):
-        for thread in self.threadList:
-            thread.close()
-        self.bRunning = False
-
-    def _select(self):
+	def acceptRefresh(self):
 		pass
-        #try:
-        #    readList, writeList, execList = select.select(
-        #        [ self.listening_socket, ], [], [],
-        #        DEFAULT_SELECT_TIMEOUT,
-        #    )
-        #except (KeyboardInterrupt, SystemExit):
-        #    print('at least this works...')
-        #finally:
-        #    pass
+	def _halt(self):
+		pass
+
+class Server(protocol.Protocol):
+	def __init__(self):
+		self.LHandlerMotor = HandlerMotor()
+		self.LHandlerPMeter = HandlerPMeter()
+		self.LHandlerFCGen = HandlerFCGen()
+		self.LHandlerAmp = HandlerAmp()
+		self.argListing = {
+			# these are all the high-level instructions that the client can
+			# request the server performs.
+			'open_init_dialog' : [],
+			'move_blocking' : ['xpos', 'ypos'],
+			'move_async' : ['xpos','ypos'],
+			'exposure_timed' : ['amplitude', 'duration'],
+			'update_voltage' : ['amplitude'],
+			'request_meter_readings' : [],
+			'request_instrument_statuses' : [],
+			# for refreshing
+			'refresh' : []
+		}
+
+	def connectionMade(self):
+		logger.info('Connection established!')
+		self.Safety = SafetyManager(self.transport)
+		self.Safety.connectionSTART()
+	def connectionLost(self, reason):
+		logger.warning('Client disconnected.')
+
+	def dataReceived(self, data):
+		try:
+			message = json.loads(data)
+			logger.debug('Message decoded OK. JSON interpretation is:'+str(message))
+			commandName = message['commandName']; inputArgs = message['command']
+			try:
+				#
+				if commandName in self.argListing.keys():
+					# good! at least the command exists.
+					if self.checkMatch(self.argListing[commandName] , inputArgs):
+						# input argument list also makes sense!
+						self.delegate(commandName, inputArgs)
+					#
+				#
+				else:
+					logger.error('Received command name does not match an understood tableHIFU operation.'
+						'Protocol will be ignored.')
+			except AttributeError:
+				logger.error('Message has unusual contents. Version issue?')
+				raise
+		except ValueError:
+			logger.error('Could not decode JSON from the received string.')
+			raise
+		except:
+			logger.error('Exception occurred somewhere in the data receipt process.')
+			raise
+		#time.sleep(4)
+		#self.transport.write('here\'s something for you!')
+
+	def checkMatch(self, list1, list2):
+		# list 1 is list of NEEDED arguments...
+		# list 2 is list of arguments we actually got.
+		decide = []
+		for i in list1:
+			if i not in list2:
+				logger.error('Argument list for receieved command is not compatible. Ignoring request.')
+				return False
+		for j in list2:
+			decide.append(True if j in list1 else False)
+		if all(decide): return True
+
+		logger.warning('Received command is compatible, but contains extra fields. '
+			'Are you sure you\'re using the right version of client AND server?')
+		return True
+
+	def delegate(self, name, args):
+		pass
+
+	'''
+	===================================================
+	===================================================
+	'''
+
+def InitiateServer(tcp_port=8888):
+	factory = protocol.ServerFactory()
+	factory.protocol = Server
+	logger.info('Starting the server on port '+ str(tcp_port))
+	reactor.listenTCP(tcp_port, factory)
+	reactor.run()
 
 if __name__ == '__main__':
 	root_logger = logging.getLogger()
@@ -182,7 +174,6 @@ if __name__ == '__main__':
 	root_logger.addHandler(streamHandler)
 	logger = logging.getLogger(__name__)
 
-	server = Server()
-	dummythread = HIFU_ThreadedHandler(server, None)
-	server.run()
+	server2 = InitiateServer()
+
 	sys.exit(0)
