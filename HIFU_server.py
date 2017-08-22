@@ -61,21 +61,36 @@ class SafetyManager(Thread):
 		self.daemon = True
 		self.bRunning = False
 		self.backchannel = backchannel
+		self.lasttrigger = None
 
 	def connectionSTART(self):
-		logger.debug('Starting safety thread. Instructing client to send refreshes'
+		logger.debug('Starting safety thread. Instructing client to send refreshes '
 			'every %d seconds.' % (SAFETY_TIMEOUT - LATENCY_BUFFER))
 		self.backchannel.write(json.dumps({'REFRESH_RATE':SAFETY_TIMEOUT - LATENCY_BUFFER}))
 		self.bRunning = True
+		self.lasttrigger = time.time()
 		self.start()
+
+	def connectionENDED(self):
+		logger.debug('Pausing/stopping the safety thread.')
+		self.bRunning = False
 
 	def run(self):
 		while self.bRunning:
-			pass
+			if time.time() - self.lasttrigger > SAFETY_TIMEOUT:
+				logger.critical('Safety timeout triggered!! Client is probably frozen/crashed.')
+				self._halt()
+				self.bRunning = False
+			if False:
+				logger.critical('Reflected power spike detected!! Instruments will be halted.')
+				self._halt()
+				self.bRunning = False
 
 	def acceptRefresh(self):
-		pass
+		self.lasttrigger = time.time()
+
 	def _halt(self):
+		# Turn off all the instruments suddenly
 		pass
 
 class Server(protocol.Protocol):
@@ -94,7 +109,7 @@ class Server(protocol.Protocol):
 			'update_voltage' : ['amplitude'],
 			'request_meter_readings' : [],
 			'request_instrument_statuses' : [],
-			# for refreshing
+			# for refreshing. it's a nop.
 			'refresh' : []
 		}
 
@@ -104,8 +119,11 @@ class Server(protocol.Protocol):
 		self.Safety.connectionSTART()
 	def connectionLost(self, reason):
 		logger.warning('Client disconnected.')
+		self.Safety.connectionENDED()
 
 	def dataReceived(self, data):
+		# Something was gotten over the channel! Refresh the safety.
+		self.Safety.acceptRefresh()
 		try:
 			message = json.loads(data)
 			logger.debug('Message decoded OK. JSON interpretation is:'+str(message))
@@ -129,10 +147,8 @@ class Server(protocol.Protocol):
 			logger.error('Could not decode JSON from the received string.')
 			raise
 		except:
-			logger.error('Exception occurred somewhere in the data receipt process.')
+			logger.error('Exception occurred somewhere else in the data receipt process.')
 			raise
-		#time.sleep(4)
-		#self.transport.write('here\'s something for you!')
 
 	def checkMatch(self, list1, list2):
 		# list 1 is list of NEEDED arguments...
@@ -151,7 +167,9 @@ class Server(protocol.Protocol):
 		return True
 
 	def delegate(self, name, args):
-		pass
+		# we're going to actually do something with the data now.
+		print(name)
+		print(args)
 
 	'''
 	===================================================
