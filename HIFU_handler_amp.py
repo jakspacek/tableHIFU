@@ -1,3 +1,0 @@
-
-class HandlerAmp(object):
-    pass

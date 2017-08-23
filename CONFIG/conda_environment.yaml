@@ -1,0 +1,23 @@
+name: HIFU_table
+channels:
+- defaults
+dependencies:
+- pip=9.0.1=py27_1
+- python=2.7.13=0
+- setuptools=27.2.0=py27_1
+- vs2008_runtime=9.00.30729.1=2
+- wheel=0.29.0=py27_0
+- pip:
+  - attrs==17.2.0
+  - automat==0.6.0
+  - constantly==15.1.0
+  - hyperlink==17.3.0
+  - incremental==17.5.0
+  - pyro4==4.53
+  - selectors34==1.1
+  - serpent==1.16
+  - six==1.10.0
+  - twisted==17.5.0
+  - zope.interface==4.4.2
+prefix: HIFU_table
+

@@ -1,0 +1,1 @@
+This folder contains the source code for the Python library that controls the HIFU table motors. The library functions are wrappers for the functions found in MotionConsole.
