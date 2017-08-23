@@ -1,3 +1,0 @@
-
-class HandlerPMeter(object):
-    pass

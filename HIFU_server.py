@@ -18,14 +18,13 @@ except ImportError:
 	'Your miniconda environment might be set up wrong.\n')
 	raise
 
-from HIFU_handler_motor import HandlerMotor
-from HIFU_handler_pmeter import HandlerPMeter
-from HIFU_handler_fcgen import HandlerFCGen
-from HIFU_handler_amp import HandlerAmp
+from Hardware.InstrumentManager import InstrumentManager
+import Extras.ConfigOptions as ConfigOptions
 
 import time
 import sys
 from threading import Thread
+from Queue import Queue
 import socket, select
 import logging
 import json
@@ -37,7 +36,6 @@ DEFAULT_PORT = 3000
 DEFAULT_HOST = ''
 MAX_BACKLOG = 5
 DEFAULT_BUFFER_SIZE = 4096
-DEFAULT_SELECT_TIMEOUT = None
 DEFAULT_MESSAGE_DELIMITER = '!EOF!'
 # FROM MATHIFU: ===========
 #'None' makes it blocking communication. DEFAULT_TIMEOUT only affects
@@ -61,14 +59,14 @@ class SafetyManager(Thread):
 		self.daemon = True
 		self.bRunning = False
 		self.backchannel = backchannel
-		self.lasttrigger = None
+		self.__lasttrigger = None
 
 	def connectionSTART(self):
 		logger.debug('Starting safety thread. Instructing client to send refreshes '
 			'every %d seconds.' % (SAFETY_TIMEOUT - LATENCY_BUFFER))
 		self.backchannel.write(json.dumps({'REFRESH_RATE':SAFETY_TIMEOUT - LATENCY_BUFFER}))
 		self.bRunning = True
-		self.lasttrigger = time.time()
+		self.__lasttrigger = time.time()
 		self.start()
 
 	def connectionENDED(self):
@@ -77,7 +75,7 @@ class SafetyManager(Thread):
 
 	def run(self):
 		while self.bRunning:
-			if time.time() - self.lasttrigger > SAFETY_TIMEOUT:
+			if time.time() - self.__lasttrigger > SAFETY_TIMEOUT:
 				logger.critical('Safety timeout triggered!! Client is probably frozen/crashed.')
 				self._halt()
 				self.bRunning = False
@@ -87,18 +85,16 @@ class SafetyManager(Thread):
 				self.bRunning = False
 
 	def acceptRefresh(self):
-		self.lasttrigger = time.time()
+		self.__lasttrigger = time.time()
 
 	def _halt(self):
 		# Turn off all the instruments suddenly
 		pass
+#===============================================================================
 
 class Server(protocol.Protocol):
 	def __init__(self):
-		self.LHandlerMotor = HandlerMotor()
-		self.LHandlerPMeter = HandlerPMeter()
-		self.LHandlerFCGen = HandlerFCGen()
-		self.LHandlerAmp = HandlerAmp()
+		self.cmdqueue = Queue()
 		self.argListing = {
 			# these are all the high-level instructions that the client can
 			# request the server performs.
@@ -108,18 +104,25 @@ class Server(protocol.Protocol):
 			'exposure_timed' : ['amplitude', 'duration'],
 			'update_voltage' : ['amplitude'],
 			'request_meter_readings' : [],
+			'request_table_position' : [],
 			'request_instrument_statuses' : [],
 			# for refreshing. it's a nop.
-			'refresh' : []
+			'refresh' : [],
+			'halt' : []
 		}
+		self.cw = ConfigOptions.ConfigWindow(None)
 
 	def connectionMade(self):
 		logger.info('Connection established!')
+		# start our two threaded managers.
 		self.Safety = SafetyManager(self.transport)
 		self.Safety.connectionSTART()
+		self.Instruments = InstrumentManager(self.cmdqueue, self.transport)
+
 	def connectionLost(self, reason):
 		logger.warning('Client disconnected.')
 		self.Safety.connectionENDED()
+		self.Instruments.bRunning = False
 
 	def dataReceived(self, data):
 		# Something was gotten over the channel! Refresh the safety.
@@ -127,7 +130,7 @@ class Server(protocol.Protocol):
 		try:
 			message = json.loads(data)
 			logger.debug('Message decoded OK. JSON interpretation is:'+str(message))
-			commandName = message['commandName']; inputArgs = message['command']
+			commandName = message['commandName']; inputArgs = message['commandArgs']
 			try:
 				#
 				if commandName in self.argListing.keys():
@@ -167,9 +170,15 @@ class Server(protocol.Protocol):
 		return True
 
 	def delegate(self, name, args):
-		# we're going to actually do something with the data now.
-		print(name)
-		print(args)
+		if name == 'open_init_dialog':
+			# ...qt will only open a window if it's "in" the main thread.
+			# bleh.
+			self.Safety.bRunning = False
+			self.cw.configure_traits()
+			self.Safety.acceptRefresh()
+			self.Safety.bRunning = True
+		else:
+			self.cmdqueue.put((name, args))
 
 	'''
 	===================================================
@@ -184,10 +193,11 @@ def InitiateServer(tcp_port=8888):
 	reactor.run()
 
 if __name__ == '__main__':
+
 	root_logger = logging.getLogger()
 	root_logger.setLevel(logging.DEBUG)
-	import color_stream_handler
-	streamHandler = color_stream_handler.ColorStreamHandler()
+	import Extras.color_stream_handler
+	streamHandler = Extras.color_stream_handler.ColorStreamHandler()
 	streamHandler.setFormatter(logging.Formatter('%(levelname)-8s : %(name)-10s : %(message)s') )
 	root_logger.addHandler(streamHandler)
 	logger = logging.getLogger(__name__)
