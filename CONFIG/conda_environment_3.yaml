@@ -1,0 +1,39 @@
+name: HIFU_table
+channels:
+- defaults
+dependencies:
+- jpeg=8d=vc9_2
+- libpng=1.6.27=vc9_0
+- libtiff=4.0.6=vc9_2
+- openssl=1.0.2l=vc9_0
+- pip=9.0.1=py27_1
+- pyqt=4.11.4=py27_7
+- python=2.7.13=0
+- qt=4.8.7=vc9_9
+- setuptools=27.2.0=py27_1
+- sip=4.18=py27_0
+- vs2008_runtime=9.00.30729.1=2
+- wheel=0.29.0=py27_0
+- zlib=1.2.11=vc9_0
+- pip:
+  - attrs==17.2.0
+  - automat==0.6.0
+  - constantly==15.1.0
+  - enum34==1.1.6
+  - hyperlink==17.3.0
+  - incremental==17.5.0
+  - pyface==5.1.0
+  - pygments==2.2.0
+  - pyro4==4.53
+  - pyserial==3.4
+  - pyside==1.2.4
+  - pyvisa==1.8
+  - selectors34==1.1
+  - serpent==1.16
+  - six==1.10.0
+  - traits==4.6.0
+  - traitsui==5.1.0
+  - twisted==17.5.0
+  - zope.interface==4.4.2
+prefix: HIFU_table
+
