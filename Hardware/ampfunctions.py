@@ -6,10 +6,10 @@ Amplifier-related hardware communication functions.
 Tested by Gael Margot, 2017.
 Collected by JLS (August 2017)
 '''
-def Amplifier_Connection(ComPort, BaudRate):
+def Amplifier_Connection(ComPort, BaudRate, timeout):
     #Trying to connect the computer to the serial port
     try:
-        myamplifier = serial.Serial(ComPort, baudrate = BaudRate, timeout = 5)
+        myamplifier = serial.Serial(ComPort, baudrate = BaudRate, timeout = timeout)
         return myamplifier
     #If there is a problem it return None
     #The problem can be :

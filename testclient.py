@@ -7,7 +7,7 @@ import time
 
 # trying straight socket comms.
 
-instruction = {'commandName':'move_blocking',
+instruction = {'commandName':'pmeter_init',
     'commandArgs':{
         'xpos' : 45,
         'ypos' : 5
@@ -21,7 +21,6 @@ getsomething = s.recv(1024)
 print(getsomething)
 
 print('client: sent the instruction.')
-s.send(sendthis); print(s.recv(1024))
 s.send(sendthis); print(s.recv(1024))
 
 s.close()

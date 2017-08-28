@@ -40,7 +40,7 @@ def FUNC_Initialization(myinstrument, Frequency, amplitude):
 
 def FUNC_SetAmplitude(myinstrument, amplitude):
     #Writing the new amplitude expected
-    myinstrument.write(':VOLT:LEV:AMPL ' + str(amplitude))
+    myinstrument.write(':VOLT:LEV:AMPL ' + str(amplitude)+'mV')
 
 def FUNC_SetFrequency(instrument, Frequency):
     instrument.write(':FREQ:CW ' + str(Frequency))

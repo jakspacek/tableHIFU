@@ -9,7 +9,7 @@ This software is to be used only for research purposes
 in a preclinical setting.
 '''
 
-from __future__ import print_function
+from __future__ import print_function, absolute_import
 
 try:
 	from twisted.internet import reactor, protocol
@@ -19,7 +19,6 @@ except ImportError:
 	raise
 
 from Hardware.InstrumentManager import InstrumentManager
-import Extras.ConfigOptions as ConfigOptions
 
 import time
 import sys
@@ -32,16 +31,9 @@ import json
 if sys.maxsize > 2**32:
 	raise Exception('You must use a 32-bit version of Python to use the motor controls.')
 
-DEFAULT_PORT = 3000
-DEFAULT_HOST = ''
-MAX_BACKLOG = 5
+DEFAULT_PORT = 8888
 DEFAULT_BUFFER_SIZE = 4096
 DEFAULT_MESSAGE_DELIMITER = '!EOF!'
-# FROM MATHIFU: ===========
-#'None' makes it blocking communication. DEFAULT_TIMEOUT only affects
-#the socket recv after it's begun receiving information from the
-#client
-DEFAULT_TIMEOUT = None
 
 LATENCY_BUFFER = 1.00
 SAFETY_TIMEOUT = 5.00
@@ -52,13 +44,14 @@ class SafetyManager(Thread):
 	The first is client timeout (watch for disconnection or crash.)
 	The second is reflected power, as long as the power meter is connected.
 	'''
-	def __init__(self, backchannel):
+	def __init__(self, backchannel, instruments):
 		# safety manager is instantiated as soon as the server is.
 		# Probably too early for anything relevant in the __init__.
 		Thread.__init__(self)
 		self.daemon = True
 		self.bRunning = False
 		self.backchannel = backchannel
+		self.instruments = instruments
 		self.__lasttrigger = None
 
 	def connectionSTART(self):
@@ -96,9 +89,20 @@ class Server(protocol.Protocol):
 	def __init__(self):
 		self.cmdqueue = Queue()
 		self.argListing = {
-			# these are all the high-level instructions that the client can
+			# these are all the instructions that the client can
 			# request the server performs.
-			'open_init_dialog' : [],
+			#'open_init_dialog' : [], nope, not anymore...
+			# INITIALIZATION. ====
+			'fcgen_init' : [],
+			'amp_init' : [],
+			'pmeter_init' : [],
+			'pmeter_calibrate_step1' : [],
+			'pmeter_calibrate_step2' : [],
+			'pmeter_calibrate_step3' : [],
+			'motors_init' : [],
+			'motors_homing' : [],
+
+			# OPERATION ====
 			'move_blocking' : ['xpos', 'ypos'],
 			'move_async' : ['xpos','ypos'],
 			'exposure_timed' : ['amplitude', 'duration'],
@@ -108,16 +112,16 @@ class Server(protocol.Protocol):
 			'request_instrument_statuses' : [],
 			# for refreshing. it's a nop.
 			'refresh' : [],
+			# stop everything
 			'halt' : []
 		}
-		self.cw = ConfigOptions.ConfigWindow(None)
 
 	def connectionMade(self):
 		logger.info('Connection established!')
 		# start our two threaded managers.
-		self.Safety = SafetyManager(self.transport)
+		self.Instruments = InstrumentManager(self.transport, self.cmdqueue)
+		self.Safety = SafetyManager(self.transport, self.Instruments)
 		self.Safety.connectionSTART()
-		self.Instruments = InstrumentManager(self.cmdqueue, self.transport)
 
 	def connectionLost(self, reason):
 		logger.warning('Client disconnected.')
@@ -129,8 +133,8 @@ class Server(protocol.Protocol):
 		self.Safety.acceptRefresh()
 		try:
 			message = json.loads(data)
-			logger.debug('Message decoded OK. JSON interpretation is:'+str(message))
 			commandName = message['commandName']; inputArgs = message['commandArgs']
+			logger.debug('Message decoded OK. command name '+commandName)
 			try:
 				#
 				if commandName in self.argListing.keys():
@@ -185,7 +189,7 @@ class Server(protocol.Protocol):
 	===================================================
 	'''
 
-def InitiateServer(tcp_port=8888):
+def InitiateServer(tcp_port=DEFAULT_PORT):
 	factory = protocol.ServerFactory()
 	factory.protocol = Server
 	logger.info('Starting the server on port '+ str(tcp_port))
@@ -195,7 +199,8 @@ def InitiateServer(tcp_port=8888):
 if __name__ == '__main__':
 
 	root_logger = logging.getLogger()
-	root_logger.setLevel(logging.DEBUG)
+	#root_logger.setLevel(logging.DEBUG)
+	root_logger.setLevel(logging.INFO)
 	import Extras.color_stream_handler
 	streamHandler = Extras.color_stream_handler.ColorStreamHandler()
 	streamHandler.setFormatter(logging.Formatter('%(levelname)-8s : %(name)-10s : %(message)s') )

@@ -60,13 +60,13 @@ def Power_Meter_Calibration(mypowermeter):
 
     return codecalibration
 
-def Power_Meter_Connection(Port, Baudrate):
+def Power_Meter_Connection(Port, Baudrate, timeout):
     #trying to establish a connection with the serial port of Power Meter
     #If there is a problem the exception will return None
     #It can be because the serial port is still used by an other software
     try:
         mypowermeter = serial.Serial(port=Port, baudrate=Baudrate)
-        mypowermeter.timeout = 2
+        mypowermeter.timeout = timeout
         mypowermeter.write('*IDN?\n')
         DeviceName = mypowermeter.readline()
 
