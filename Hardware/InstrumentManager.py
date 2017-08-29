@@ -151,7 +151,8 @@ class InstrumentManager(Thread):
         "The PID controller has decided a new voltage. Update the "
         "Note that we're relying on the Safety thread to catch issues - there "
         "will be NO timing done here...!"
-        pass
+        FCGenLib.FUNC_SetAmplitude(self.FCGen, amplitude)
+        self.issueHandshake('done')
 
     def request_meter_readings(self, **kwargs):
         "Ask the power meter, send the numbers by backchannel. I guess."
