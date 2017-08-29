@@ -63,8 +63,9 @@ class InstrumentManager(Thread):
         else:
             AmpLib.Amplifier_Initialization(self.Amp)
             AmpLib.Amplifier_SetGain(self.Amp)
-            self.issueHandshake(AmpLib.Amplifier_GetGain(self.Amp),
-                AmpLib.Amplifier_GetStatus(self.Amp))
+            self.issueHandshake(str((AmpLib.Amplifier_GetGain(self.Amp),
+                AmpLib.Amplifier_GetStatus(self.Amp))))
+            self.instrumentsconnected[0] = True
 
     def pmeter_init(self, **kwargs):
         self.PMeter = PMeterLib.Power_Meter_Connection('COM3', 9600, 2)
@@ -131,6 +132,19 @@ class InstrumentManager(Thread):
             self.issueHandshake('Homing done OK')
         else:
             self.issueHandshake('Homing NOT done OK')
+
+    def emergency_close(self):
+        logger.info('emergency_close invoked.')
+        #first try and reconnect to instruments in case there was a disrupted connection.
+        if self.instrumentsconnected[0]:
+            try:
+                newamp = AmpLib.Amplifier_Connection('COM6', 19200, 5)
+                print(newamp)
+            except:
+                raise
+            #shut off the output.
+            AmpLib.Amplifier_RfTurnOff(self.Amp)
+            AmpLib.Amplifier_ConnectionOff(self.Amp)
 
     def clean_close(self):
         if self.instrumentsconnected[0]:
@@ -201,3 +215,4 @@ class InstrumentManager(Thread):
         # end the instrument management thread.
         # halt other things too.
         self.bRunning = False
+        self.emergency_close()
