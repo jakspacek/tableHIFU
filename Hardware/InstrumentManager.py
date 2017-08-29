@@ -69,11 +69,12 @@ class InstrumentManager(Thread):
     def pmeter_init(self, **kwargs):
         self.PMeter = PMeterLib.Power_Meter_Connection('COM3', 9600, 2)
         if not self.PMeter:
-            logger.error('Function generator connection was not made. Sending error message to client.')
+            logger.error('Power meter connection was not made. Sending error message to client.')
             self.issueHandshake('uh oh')
         else:
             PMeterLib.Power_Meter_Initialization(self.PMeter)
             self.instrumentsconnected[3] = True
+            self.Safety._queryagainflag = True
             self.issueHandshake('go ahead')
 
     def pmeter_calibrate_zeroboth(self, **kwargs):
@@ -96,11 +97,12 @@ class InstrumentManager(Thread):
     def pmeter_send_to_safety(self):
         vals = PMeterLib.Power_Meter_Reading(self.PMeter)
         self.Safety._lastpowerreadings = vals
+        self.Safety._queryagainflag = True
 
     def motors_init(self, **kwargs):
         self.Motors = motorcontrol.TableMotorController()
         if not self.Motors:
-            logger.error('Function generator connection was not made. Sending error message to client.')
+            logger.error('Motor table connection was not made. Sending error message to client.')
             self.issueHandshake('uh oh')
         else:
             self.Motors.init_axes()
@@ -129,6 +131,20 @@ class InstrumentManager(Thread):
             self.issueHandshake('Homing done OK')
         else:
             self.issueHandshake('Homing NOT done OK')
+
+    def clean_close(self):
+        if self.instrumentsconnected[0]:
+            self.Amp.close()
+        if self.instrumentsconnected[1]:
+            self.FCGen.clear()
+            self.FCGen.close()
+        if self.instrumentsconnected[2]:
+            self.Motors.stop_motors()
+            # no real way to disconnect, weirdly.
+        if self.instrumentsconnected[3]:
+            self.PMeter.close()
+        self.instrumentsconnected = [False, False, False, False]
+        self.bRunning = False
 
     #===========================================================================
     # Exposed Functions.

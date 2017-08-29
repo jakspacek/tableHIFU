@@ -11,6 +11,10 @@ in a preclinical setting.
 
 from __future__ import print_function, absolute_import
 
+import sys
+if sys.maxsize > 2**32:
+	raise Exception('You must use a 32-bit version of Python to use the motor controls.')
+
 try:
 	from twisted.internet import reactor, protocol
 except ImportError:
@@ -21,22 +25,18 @@ except ImportError:
 from Hardware.InstrumentManager import InstrumentManager
 
 import time
-import sys
 from threading import Thread
 from Queue import Queue
 import socket, select
 import logging
 import json
 
-if sys.maxsize > 2**32:
-	raise Exception('You must use a 32-bit version of Python to use the motor controls.')
-
 DEFAULT_PORT = 8888
 DEFAULT_BUFFER_SIZE = 4096
 DEFAULT_MESSAGE_DELIMITER = '!EOF!'
 
 LATENCY_BUFFER = 1.00
-SAFETY_TIMEOUT = 5.00
+SAFETY_TIMEOUT = 12.00
 
 REFLECTED_POWER_SPIKE_THRESHOLD = 0.10 # 10% by default.
 
@@ -56,7 +56,10 @@ class SafetyManager(Thread):
 		self.instruments = instruments
 		self.queue = cmdqueue
 		self.__lasttrigger = None
-		self._lastpowerreadings = []
+
+		self._lastpowerreadings = [0,0,0]
+		self._queryagainflag = False
+		self._sonicating = False
 
 	def connectionSTART(self):
 		logger.debug('Starting safety thread. Instructing client to send refreshes '
@@ -76,17 +79,19 @@ class SafetyManager(Thread):
 				logger.critical('Safety timeout triggered!! Client is probably frozen/crashed.')
 				self._halt()
 				self.bRunning = False
-			if self._lastpowerreadings[2] > REFLECTED_POWER_SPIKE_THRESHOLD*self._lastpowerreadings[0]:
-				logger.critical('Reflected power spike detected!! Instruments will be halted.')
-				self._halt()
-				self.bRunning = False
-			# hackiest way imaginable to perform a thing every 0.5 seconds.
-			# (doesnt waste CPU cycles though, and doesnt require another thread, and
-			# doesnt clog up the queue, so I'm happy with it.)
-			tensdigit = round(round(time.time(), 1)%1, 1)*10
-			if tensdigit==5 or tensdigit==0:
+			try:
+				if self._sonicating \
+					and float(self._lastpowerreadings[1]) > \
+					REFLECTED_POWER_SPIKE_THRESHOLD*float(self._lastpowerreadings[0]):
+					logger.critical('Reflected power spike detected!! Instruments will be halted.')
+					self._halt()
+					self.bRunning = False
+			except ValueError:
+				logger.warning('Received a blank string from power meter. Probably not a problem unless '
+					'you\'re seeing this message a lot.')
+			if self._queryagainflag:
 				if self.instruments.instrumentsconnected[3]:
-					print(self._lastpowerreadings)
+					self._queryagainflag = False
 					self.queue.put(('pmeter_send_to_safety', {}))
 
 	def acceptRefresh(self):
@@ -140,7 +145,7 @@ class Server(protocol.Protocol):
 	def connectionLost(self, reason):
 		logger.warning('Client disconnected.')
 		self.Safety.connectionENDED()
-		self.Instruments.bRunning = False
+		self.cmdqueue.put(('clean_close', {}))
 
 	def dataReceived(self, data):
 		# Something was gotten over the channel! Refresh the safety.

@@ -9,8 +9,7 @@ import time
 
 instruction = {'commandName':'pmeter_init',
     'commandArgs':{
-        'xpos' : 45,
-        'ypos' : 5
+
     }
     }
 sendthis = json.dumps(instruction)
@@ -22,5 +21,9 @@ print(getsomething)
 
 print('client: sent the instruction.')
 s.send(sendthis); print(s.recv(1024))
+time.sleep(3)
+s.send(json.dumps({'commandName':'refresh','commandArgs':{}}))
+time.sleep(3)
+s.send(json.dumps({'commandName':'refresh','commandArgs':{}}))
 
 s.close()
