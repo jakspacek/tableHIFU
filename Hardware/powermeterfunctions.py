@@ -115,23 +115,26 @@ def Power_Meter_Reading(mypowermeter):
     #For each reading values we need to freeze the windows
     #Then asking to the device to read the needed values
     #When the answers complete, unfreeze the windows
+    sendback = []
     mypowermeter.write('INIT1:CONT OFF\n')
     mypowermeter.write('INIT2:CONT OFF\n')
 
     mypowermeter.write('READ1:POW:AC?\n')
     powerA = mypowermeter.readline()
-    print powerA
+    sendback.append(powerA)
 
     mypowermeter.write('READ2:POW:AC?\n')
     powerB = mypowermeter.readline()
-    print powerB
+    sendback.append(powerB)
 
     mypowermeter.write('READ2:POW:AC:DIFF?\n')
     powerreading = mypowermeter.readline()
-    print powerreading
+    sendback.append(powerreading)
 
     mypowermeter.write('INIT1:CONT ON\n')
     mypowermeter.write('INIT2:CONT ON\n')
+
+    return sendback
 
 if __name__ == '__main__':
     mypowermeter = Power_Meter_Connection('COM3', 9600)

@@ -24,9 +24,13 @@ class InstrumentManager(Thread):
         self.bRunning = False
         self.queue = queue
         self.backchannel = backchannel
-
+        self.instrumentsconnected = [False, False, False, False]
+        # **alphabetical. Amp, FC Gen, Motors, Powermeter.
         self.bRunning = True
         self.start()
+
+    def setSafetyRef(self, safetyobj):
+        self.Safety = safetyobj
 
     def run(self):
         while self.bRunning:
@@ -69,6 +73,7 @@ class InstrumentManager(Thread):
             self.issueHandshake('uh oh')
         else:
             PMeterLib.Power_Meter_Initialization(self.PMeter)
+            self.instrumentsconnected[3] = True
             self.issueHandshake('go ahead')
 
     def pmeter_calibrate_zeroboth(self, **kwargs):
@@ -79,14 +84,18 @@ class InstrumentManager(Thread):
         self.issueHandshake('go ahead')
 
     def pmeter_calibrate_cal1(self, **kwargs):
-        mypowermeter.write('CAL1:AUTO ONCE\n')
+        self.PMeter.write('CAL1:AUTO ONCE\n')
         time.sleep(12)
         self.issueHandshake('go ahead')
 
     def pmeter_calibrate_cal2(self, **kwargs):
-        mypowermeter.write('CAL2:AUTO ONCE\n')
+        self.PMeter.write('CAL2:AUTO ONCE\n')
         time.sleep(12)
         self.issueHandshake('go ahead')
+
+    def pmeter_send_to_safety(self):
+        vals = PMeterLib.Power_Meter_Reading(self.PMeter)
+        self.Safety._lastpowerreadings = vals
 
     def motors_init(self, **kwargs):
         self.Motors = motorcontrol.TableMotorController()
@@ -97,9 +106,29 @@ class InstrumentManager(Thread):
             self.Motors.init_axes()
             self.issueHandshake('go ahead :)')
 
+    def motors_set_focus(self, xval, yval, **kwargs):
+        Motors.set_focus(xval, yval)
+        self.issueHandshake('Done')
 
     def motors_homing(self, **kwargs):
-        pass
+        Motors.stop_motors()
+        Motors.orientation('Supine', 'Head First')
+        p = Motors.read_current_position()
+        # move Y axis
+        Motors.set_initial_focus(p[0], p[1])
+        Motors.set_focus(p[0],-11.17)
+        Motors.move_to_target(p[0],0)
+        # move X axis
+        p = Motors.read_current_position()
+        Motors.set_focus(-25.3,p[1])
+        Motors.move_to_target(0,p[1])
+        Motors.stop_motors()
+        p = Motors.read_current_position()
+        if p[0] < 0.5 and p[0] > -0.5 and p[1] < 0.5 and p[1] > -0.5:
+            # in range.
+            self.issueHandshake('Homing done OK')
+        else:
+            self.issueHandshake('Homing NOT done OK')
 
     #===========================================================================
     # Exposed Functions.

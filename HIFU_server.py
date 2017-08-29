@@ -38,13 +38,15 @@ DEFAULT_MESSAGE_DELIMITER = '!EOF!'
 LATENCY_BUFFER = 1.00
 SAFETY_TIMEOUT = 5.00
 
+REFLECTED_POWER_SPIKE_THRESHOLD = 0.10 # 10% by default.
+
 class SafetyManager(Thread):
 	'''
 	SafetyManager watches two things.
 	The first is client timeout (watch for disconnection or crash.)
 	The second is reflected power, as long as the power meter is connected.
 	'''
-	def __init__(self, backchannel, instruments):
+	def __init__(self, backchannel, cmdqueue, instruments):
 		# safety manager is instantiated as soon as the server is.
 		# Probably too early for anything relevant in the __init__.
 		Thread.__init__(self)
@@ -52,7 +54,9 @@ class SafetyManager(Thread):
 		self.bRunning = False
 		self.backchannel = backchannel
 		self.instruments = instruments
+		self.queue = cmdqueue
 		self.__lasttrigger = None
+		self._lastpowerreadings = []
 
 	def connectionSTART(self):
 		logger.debug('Starting safety thread. Instructing client to send refreshes '
@@ -72,10 +76,18 @@ class SafetyManager(Thread):
 				logger.critical('Safety timeout triggered!! Client is probably frozen/crashed.')
 				self._halt()
 				self.bRunning = False
-			if False:
+			if self._lastpowerreadings[2] > REFLECTED_POWER_SPIKE_THRESHOLD*self._lastpowerreadings[0]:
 				logger.critical('Reflected power spike detected!! Instruments will be halted.')
 				self._halt()
 				self.bRunning = False
+			# hackiest way imaginable to perform a thing every 0.5 seconds.
+			# (doesnt waste CPU cycles though, and doesnt require another thread, and
+			# doesnt clog up the queue, so I'm happy with it.)
+			tensdigit = round(round(time.time(), 1)%1, 1)*10
+			if tensdigit==5 or tensdigit==0:
+				if self.instruments.instrumentsconnected[3]:
+					print(self._lastpowerreadings)
+					self.queue.put(('pmeter_send_to_safety', {}))
 
 	def acceptRefresh(self):
 		self.__lasttrigger = time.time()
@@ -103,6 +115,7 @@ class Server(protocol.Protocol):
 			'motors_homing' : [],
 
 			# OPERATION ====
+			'motors_set_focus' : ['xval', 'yval'], # this is needed for cone locking.
 			'move_blocking' : ['xpos', 'ypos'],
 			'move_async' : ['xpos','ypos'],
 			'exposure_timed' : ['amplitude', 'duration'],
@@ -120,7 +133,8 @@ class Server(protocol.Protocol):
 		logger.info('Connection established!')
 		# start our two threaded managers.
 		self.Instruments = InstrumentManager(self.transport, self.cmdqueue)
-		self.Safety = SafetyManager(self.transport, self.Instruments)
+		self.Safety = SafetyManager(self.transport, self.cmdqueue, self.Instruments)
+		self.Instruments.setSafetyRef(self.Safety)
 		self.Safety.connectionSTART()
 
 	def connectionLost(self, reason):
@@ -174,15 +188,7 @@ class Server(protocol.Protocol):
 		return True
 
 	def delegate(self, name, args):
-		if name == 'open_init_dialog':
-			# ...qt will only open a window if it's "in" the main thread.
-			# bleh.
-			self.Safety.bRunning = False
-			self.cw.configure_traits()
-			self.Safety.acceptRefresh()
-			self.Safety.bRunning = True
-		else:
-			self.cmdqueue.put((name, args))
+		self.cmdqueue.put((name, args))
 
 	'''
 	===================================================
