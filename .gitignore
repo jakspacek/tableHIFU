@@ -100,3 +100,4 @@ ENV/
 # mypy
 .mypy_cache/
 miniconda_path.txt
+miniconda_path.txt
