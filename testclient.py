@@ -22,6 +22,12 @@ print(getsomething)
 print('client: sent the instruction.')
 s.send(sendthis); print(s.recv(1024))
 time.sleep(3)
+'''
+s.send(json.dumps({'commandName':'exposure_timed','commandArgs':{
+    'amplitude':'170',
+    'duration':'12'
+}}))
+'''
 s.send(json.dumps({'commandName':'refresh','commandArgs':{}}))
 time.sleep(3)
 s.send(json.dumps({'commandName':'halt','commandArgs':{}}))

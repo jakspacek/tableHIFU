@@ -54,6 +54,7 @@ class InstrumentManager(Thread):
         else:
             FCGenLib.FUNC_Initialization(self.FCGen, '1e6', '110mV')
             self.issueHandshake('sure i guess')
+            self.instrumentsconnected[1]=True
 
     def amp_init(self, **kwargs):
         self.Amp = AmpLib.Amplifier_Connection('COM6', 19200, 5)
@@ -147,6 +148,7 @@ class InstrumentManager(Thread):
             AmpLib.Amplifier_ConnectionOff(self.Amp)
 
     def clean_close(self):
+        logger.info('clean_close invoked.')
         if self.instrumentsconnected[0]:
             self.Amp.close()
         if self.instrumentsconnected[1]:
@@ -176,15 +178,16 @@ class InstrumentManager(Thread):
         "So we can NOT run this in the main thread!!! or else the halt never gets"
         "pushed. "
         self.Safety._sonicating = True # turn on spike detection.
-        t = Thread(target = self.__doTimedExposure, args = (duration, amplitude, self.backchannel, not self.bRunning))
+        t = Thread(target = self.__doTimedExposure, args = (float(duration), amplitude, self.backchannel))
         t.start()
 
-    def __doTimedExposure(self, duration, amplitude, backchannel, estop):
+    def __doTimedExposure(self, duration, amplitude, backchannel):
         starttime = time.time()
         FCGenLib.FUNC_TurnOn(self.FCGen)
         FCGenLib.FUNC_SetAmplitude(self.FCGen, amplitude)
-        while not estop and time.time() < starttime + duration:
+        while self.bRunning and time.time() < starttime + duration:
             pass
+        if not self.bRunning: print('stopped prematurely!')
         FCGenLib.FUNC_TurnOff(self.FCGen)
 
     def update_voltage(self, amplitude, **kwargs):
@@ -215,4 +218,4 @@ class InstrumentManager(Thread):
         # end the instrument management thread.
         # halt other things too.
         self.bRunning = False
-        self.emergency_close()
+        self.clean_close()
